@@ -1,0 +1,142 @@
+# Reference - https://github.com/marketplace/actions/configure-aws-credentials-action-for-github-actions
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  GitHubOrg:
+    Type: String
+  OIDCProviderArn:
+    Description: Arn for the GitHub OIDC Provider.
+    Default: ""
+    Type: String
+
+Conditions:
+  CreateOIDCProvider: !Equals
+    - !Ref OIDCProviderArn
+    - ""
+
+Resources:
+  GithubAssumeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Allow github actions to assume this role to deploy resources to AWS
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRoleWithWebIdentity
+            Principal:
+              Federated: !If
+                - CreateOIDCProvider
+                - !Ref GithubOidc
+                - !Ref OIDCProviderArn
+            Condition:
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOrg}/*
+      Policies:
+        - PolicyName: GithubActionsPolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                  - ssm:LabelParameterVersion
+                  - ssm:AddTagsToResource
+                  - ssm:RemoveTagsFromResource
+                  - ssm:DeleteParameter
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/xplorers/*
+              - Effect: Allow
+                Action:
+                  - lambda:GetFunction
+                  - lambda:CreateFunction
+                  - lambda:DeleteFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:AddPermission
+                  - lambda:RemovePermission
+                  - lambda:InvokeFunction
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:ListTags
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:PutFunctionEventInvokeConfig
+                  - lambda:DeleteFunctionEventInvokeConfig
+                Resource:
+                  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:xplorers*
+              - Effect: Allow
+                Action:
+                  - lambda:DeleteLayerVersion
+                  - lambda:GetLayerVersion
+                  - lambda:PublishLayerVersion
+                Resource:
+                  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:xplorers*
+                  - !Sub arn:aws:lambda:*:*:layer:AWS-*
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                Resource:
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/xplorers*
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:aws:transform/*
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject*
+                  - s3:CreateMultipartUpload
+                Resource:
+                  - !Sub arn:aws:s3:::xplorers*
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                  - iam:AttachRolePolicy
+                  - iam:CreateRole
+                  - iam:GetPolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:CreatePolicy
+                  - iam:DeleteRole
+                  - iam:DetachRolePolicy
+                  - iam:UpdateRole
+                  - iam:DeleteRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:CreatePolicyVersion
+                  - iam:DeletePolicyVersion
+                  - iam:DeletePolicy
+                  - iam:ListPolicyVersions
+                  - iam:TagRole
+                  - iam:UntagRole
+                Resource:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/xplorers*
+                  - !Sub arn:aws:iam::${AWS::AccountId}:policy/xplorers*
+              - Effect: Allow
+                Action:
+                  - apigateway:PUT
+                  - apigateway:PATCH
+                  - apigateway:GET
+                  - apigateway:POST
+                  - apigateway:DELETE
+                  - apigateway:UpdateRestApiPolicy
+                Resource: arn:aws:apigateway:*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:PutLogEvents
+                  - logs:TagResource
+                  - logs:PutRetentionPolicy
+                  - logs:DeleteRetentionPolicy
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/xplorers*
+
+  GithubOidc:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+Outputs:
+  GithubAssumeRoleArn:
+    Value: !GetAtt GithubAssumeRole.Arn
